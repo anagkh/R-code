@@ -1,0 +1,193 @@
+#LOADING DATA
+
+#map working directory
+path <- "D:/Olga/Data Science/Datahacks/Workshop"
+
+#set working directory
+setwd(path)
+#or
+setwd("D:/Olga/Data Science/Datahacks/Workshop")
+#but, easiest way - Sesstion > Set working directory- everything's working
+
+#load data
+train <- read.csv("train.csv")
+test <- read.csv("test.csv")
+
+
+
+
+#UNIVARIATE ANALYSIS
+
+#Let's start by looking at the data type of each column
+str(train)
+
+#We'll perform unovariate analysis for both continuous and categorical variables separately
+#Let's group our continuous and categorical variables for this activity
+train_count <- subset(train, select = c(ID,Age,Hours.Per.Week))
+train_cat <- subset(train, select = -c(ID, Age, Hours.Per.Week))
+
+#quick summary of all  variables
+summary(train_count)
+
+#detailed version of this summary - by installment of the package 'pastecs'
+install.packages("pastecs")
+library("pastecs")
+
+#set significant digits and get detailed summary
+options(scipen = 100)
+options(digits=2)
+stat.desc(train_count)
+
+#check the number of unique values in each categorical variable
+apply(train_cat, 2, function(x){length(unique(x))})
+
+
+#for those that have less than 10 unique categories, e.g. Race
+#print the counts of each category
+table(train_cat$Race)
+
+#print the percentage of observation in each category
+as.matrix((prop.table(table(train_cat$Race))))
+
+
+#for those that have more than 10-15 unique categories, e.g. Native-Country
+#print the counts of top 20 countries
+head(sort(table(train_cat$Native.Country), decreasing = TRUE),20)
+
+#print the percentage of observations of top 20 countries
+head(round(sort(prop.table(table(train_cat$Native.Country)), descreasing = TRUE),6),20)
+
+
+
+#MULTIVARIATE ANALYSIS
+#1. Both categorical
+#we look at the cross-tabulation or confusion matrix of the two variables (package gmodels)
+#Let's take example of sex and income group
+install.packages("gmodels")
+library("gmodels")
+
+#using crosstable function from gmodels
+CrossTable(train$Sex, train$Income.Group)
+
+#we can also plot this analysis using a simple stacked bar chart by using ggplot library
+library(ggplot2)
+ggplot(train, aes(Sex, fill = Income.Group))+geom_bar()+labs(title="Stacked Bar Chart", x="Sex", y="Count")+theme_bw()
+
+#2. Both continuous
+#AnalyticsVidhuya gives no example on how to make it with ggplot, let's state it as it is
+plot(train$Age, train$Hours.Per.Week, main = "Scatterplot example", xlab="Age", ylab="Hours Per Week", pch=19)
+
+#3. Categorical-continuous
+#create a boxplot
+ggplot(train, aes(Sex,Hours.Per.Week))+geom_boxplot()+labs(title="Boxplot")
+
+
+
+
+#3.MISSING VALUES TREATMENT
+#3.1.Checking missing values, 3.2.Imputation
+
+#3.1. Checking missing values
+#check the number of missing values in the complete dataset
+table(is.na(train))
+
+#check missing values column wise in train dataset
+colSums(is.na(train))
+
+#check missing values column wise in test dataset
+colSums(is.na(test))
+
+#3.2.Imputation
+#install&load package
+install.packages("mlr", repos='http://cran.us.r-project.org')
+library(mlr)
+
+#impute missing values with mode
+imputed_data <- impute(train, classes = list(factor=imputeMode()))
+
+#update train dataset with imputed values
+train <- imputed_data$data
+
+#doublecheck the train data
+colSums(is.na(train))
+
+
+
+
+#OUTLIER TREATMENT
+library(ggplot2)
+
+#create a scatterplot for continuous variables
+ggplot(train, aes(ID, Age))+geom_jitter()
+ggplot(train, aes(ID, Hours.Per.Week))+geom_jitter()
+
+
+#VARIABLE TRANSFORMATION
+
+#check the class of all variables
+sapply(train, class)
+
+#let's take workclass variable as an example
+#determine the percentage of observation in each category
+as.matrix(prop.table(table(train$Workclass)))
+
+#as a thumbrule, let's combine all the categories with less than 5% of obs
+#using recode functionfrom package car
+library(car)
+
+#combining factor levels with few observations in a new level named Others
+train$Workclass <- recode(train$Workclass, "c('State-gov', 'Self-emp-inc', 'Federal-gov', 'Without-pay', 'Never-worked')= 'Others'")
+test$Workclass <- recode(test$Workclass, "c('State-gov', 'Self-emp-inc', 'Federal-gov', 'Without-pay', 'Never-worked')= 'Others'")
+
+#let's check the factor level percentages now
+as.matrix(prop.table(table(train$Workclass)))
+
+
+
+
+#6.PREDICTIVE MODELING (decision tree is an example)
+#6.1. Data preprocessing
+#consider the dependent variable
+table(train$Income.Group)
+
+#encode dependent variable
+train$Income.Group <- ifelse(train$Income.Group == "<=50K", 0,1)
+
+#check if the changes were accepted
+table(train$Income.Group)
+
+#removing identifier from table
+train <- subset(train, select = -c(ID))
+str(train)
+
+#6.2. Building the model
+#install the packages
+install.packages("rpart")
+library(rpart)
+
+#build the model
+set.seed(333)
+train.tree <- rpart(Income.Group ~ ., data = train, method = "class", control = rpart.control(minsplit = 20, minbucket = 100, maxdepth = 10, xval=5))
+summary(train.tree)
+
+#let's plot this tree
+install.packages("rpart.plot")
+library(rpart.plot)
+rpart.plot(train.tree)
+
+#6.3 Make predictions
+prediction_train <- predict(train.tree,  newdata = train, type="class")
+prediction_test <- predict(train.tree, newdata = test, type="class")
+
+#6.4 Analyze results
+#using package caret
+install.packages(caret)
+install.packages("e1071")
+library(caret)
+
+#confusion matrix
+confusionMatrix(prediction_train, train$Income.Group)
+
+#solution
+solution_frame <- data.frame (ID=test$ID, Income.Group = prediction_test)
+write.csv(solution_frame, file="final_solution.csv")
